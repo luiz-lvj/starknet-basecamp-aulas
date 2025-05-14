@@ -6,17 +6,16 @@ pub trait IHelloWorld<TContractState> {
     fn unregister_user(ref self: TContractState, user: ContractAddress);
     fn change_user_id(ref self: TContractState, id: felt252);
 
-
-    //get
+    // Getters
     fn is_user_registered(self: @TContractState, user: ContractAddress) -> bool;
     fn get_user_id(self: @TContractState, user: ContractAddress) -> felt252;
     fn get_users_count(self: @TContractState) -> u64;
 
-    //functions 3 class
+    // Funções da 3ª aula
     fn deposity(ref self: TContractState, amount: u256);
     fn withdraw(ref self: TContractState, amount: u256);
 
-    //get functions 3 class
+    // Getters da 3ª aula
     fn userBalance(self: @TContractState, user: ContractAddress) -> u256;
     fn myBalance(self: @TContractState) -> u256;
     fn contractBalance(self: @TContractState) -> u256;
@@ -24,11 +23,9 @@ pub trait IHelloWorld<TContractState> {
 
 #[starknet::contract]
 mod HelloWorld {
-    use openzeppelin_access::ownable::OwnableComponent;
+    use openzeppelin_access::ownable::{OwnableComponent, only_owner};
     use openzeppelin_token::erc20::{ERC20ABIDispatcher, ERC20ABIDispatcherTrait};
-    use starknet::storage::{
-        StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map,
-    };
+    use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, Map};
     use core::starknet::{ContractAddress, get_caller_address, get_contract_address};
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
@@ -36,7 +33,6 @@ mod HelloWorld {
     #[abi(embed_v0)]
     impl OwnableMixinImpl = OwnableComponent::OwnableMixinImpl<ContractState>;
     impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
-
 
     #[storage]
     struct Storage {
@@ -77,18 +73,6 @@ mod HelloWorld {
         pub id: felt252,
     }
 
-    #[derive(Drop, PartialEq, starknet::Event)]
-    pub struct Deposity {
-        pub user: ContractAddress,
-        pub amount: u256,
-    }
-
-    #[derive(Drop, PartialEq, starknet::Event)]
-    pub struct Withdraw {
-        pub user: ContractAddress,
-        pub amount: u256,
-    }
-
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress, ERC20_addr: ContractAddress) {
         self.ownable.initializer(owner);
@@ -102,37 +86,32 @@ mod HelloWorld {
             self.users_registered.entry(caller).write(true);
             self.ids.entry(caller).write(id);
             self.users_count.write(self.users_count.read() + 1);
-
-            self.emit(UserRegistered { user: caller, id: id });
+            self.emit(UserRegistered { user: caller, id });
         }
 
         fn unregister_user(ref self: ContractState, user: ContractAddress) {
             let caller = get_caller_address();
-            let owner = self.ownable.owner();
 
-            assert(caller == user || caller == owner, 'Unauthorized');
+            // Se não for o próprio usuário, exige que seja o dono
+            if caller != user {
+                only_owner(self.ownable);
+            }
+
             let is_registered = self.users_registered.entry(user).read();
-
             assert(is_registered, 'User not registered');
 
             assert(self.users_count.read() > 0, 'No users registered');
-
-            self.users_count.write(self.users_count.read() - 1);
-
             self.users_registered.entry(user).write(false);
-
-            self.emit(UserUnregistered { user: user });
+            self.users_count.write(self.users_count.read() - 1);
+            self.emit(UserUnregistered { user });
         }
 
         fn change_user_id(ref self: ContractState, id: felt252) {
             let caller = get_caller_address();
             let registered = self.users_registered.entry(caller).read();
-
             assert(registered, 'User not registered');
-
             self.ids.entry(caller).write(id);
-
-            self.emit(UserIdChanged { user: caller, id: id });
+            self.emit(UserIdChanged { user: caller, id });
         }
 
         fn get_users_count(self: @ContractState) -> u64 {
@@ -158,12 +137,8 @@ mod HelloWorld {
 
             erc20.transfer_from(caller, get_contract_address(), amount);
 
-            let new_user_balance = caller_balance_here + amount;
-            self.user_balance.entry(caller).write(new_user_balance);
-
-            let old_this_balance = self.this_balance.read();
-            let new_this_balance = old_this_balance + amount;
-            self.this_balance.write(new_this_balance);
+            self.user_balance.entry(caller).write(caller_balance_here + amount);
+            self.this_balance.write(self.this_balance.read() + amount);
         }
 
         fn withdraw(ref self: ContractState, amount: u256) {
@@ -172,15 +147,13 @@ mod HelloWorld {
 
             let caller_balance_here = self.user_balance.entry(caller).read();
             let this_balance = self.this_balance.read();
+
             assert(caller_balance_here >= amount, 'Insufficient balance');
             assert(this_balance >= amount, 'Insufficient contract balance');
 
             erc20.transfer(caller, amount);
-            let caller_balance_here_new = caller_balance_here - amount;
-            self.user_balance.entry(caller).write(caller_balance_here_new);
-
-            let this_balance_new = this_balance - amount;
-            self.this_balance.write(this_balance_new);
+            self.user_balance.entry(caller).write(caller_balance_here - amount);
+            self.this_balance.write(this_balance - amount);
         }
 
         fn userBalance(self: @ContractState, user: ContractAddress) -> u256 {
