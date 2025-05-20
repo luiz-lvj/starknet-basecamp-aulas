@@ -1,5 +1,4 @@
-// Revisão e ajuste das funções que contém ownable
-
+// Ajustes e revisão das funções que contém ownable
 use starknet::ContractAddress;
 
 #[starknet::interface]
