@@ -48,6 +48,8 @@ mod HelloWorld {
         ERC20_addr: ContractAddress,
         #[substorage(v0)]
         pub ownable: OwnableComponent::Storage,
+        //Adicionar a opção de que apenas o owner pode pausar as transações do contrato
+        paused: bool,
     }
 
     #[event]
@@ -58,6 +60,9 @@ mod HelloWorld {
         UserRegistered: UserRegistered,
         UserUnregistered: UserUnregistered,
         UserIdChanged: UserIdChanged,
+        //enum Event dos eventos de pauser e despausar
+        Paused: Paused,
+        Unpaused: Unpaused,
     }
 
     #[derive(Drop, PartialEq, starknet::Event)]
@@ -89,15 +94,27 @@ mod HelloWorld {
         pub amount: u256,
     }
 
+    //Eventos opcionais de pausar
+    #[derive(Drop, PartialEq, starknet::Event)]
+    pub struct Paused {
+        pub by: ContractAddress,
+    }
+
+    #[derive(Drop, PartialEq, starknet::Event)]
+    pub struct Unpaused {
+        pub by: ContractAddress,
+    }
+
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress, ERC20_addr: ContractAddress) {
-        self.ownable.initializer(owner);
+        self.ownable.initializer(owner); //Inicialização do owner para ser usável durante algumas funções do código
         self.ERC20_addr.write(ERC20_addr);
     }
 
     #[abi(embed_v0)]
     impl HelloWorldImpl of super::IHelloWorld<ContractState> {
         fn register_user(ref self: ContractState, id: felt252) {
+            assert(!self.paused.read(), 'Contract is paused'); //Pausar o contrato
             let caller = get_caller_address();
             self.users_registered.entry(caller).write(true);
             self.ids.entry(caller).write(id);
@@ -107,8 +124,9 @@ mod HelloWorld {
         }
 
         fn unregister_user(ref self: ContractState, user: ContractAddress) {
+            assert(!self.paused.read(), 'Contract is paused'); //Pausar o contrato
             let caller = get_caller_address();
-            let owner = self.ownable.owner();
+            let owner = self.ownable.owner(); //Somente o dono do contrato pode tirar o registro de usuários
 
             assert(caller == user || caller == owner, 'Unauthorized');
             let is_registered = self.users_registered.entry(user).read();
@@ -125,6 +143,7 @@ mod HelloWorld {
         }
 
         fn change_user_id(ref self: ContractState, id: felt252) {
+            assert(!self.paused.read(), 'Contract is paused'); //Pausar o contrato
             let caller = get_caller_address();
             let registered = self.users_registered.entry(caller).read();
 
@@ -148,6 +167,7 @@ mod HelloWorld {
         }
 
         fn deposity(ref self: ContractState, amount: u256) {
+            assert(!self.paused.read(), 'Contract is paused'); //Pausar o contrato
             let caller = get_caller_address();
             let erc20 = ERC20ABIDispatcher { contract_address: self.ERC20_addr.read() };
 
@@ -167,6 +187,7 @@ mod HelloWorld {
         }
 
         fn withdraw(ref self: ContractState, amount: u256) {
+            assert(!self.paused.read(), 'Contract is paused'); //Pausar o contrato
             let caller = get_caller_address();
             let erc20 = ERC20ABIDispatcher { contract_address: self.ERC20_addr.read() };
 
@@ -194,6 +215,26 @@ mod HelloWorld {
 
         fn contractBalance(self: @ContractState) -> u256 {
             self.this_balance.read()
+        }
+
+        //Função de pausar
+        fn pause(ref self: ContractState) {
+            let caller = get_caller_address();
+            let owner = self.ownable.owner();
+            assert(caller == owner, 'Only owner can pause');
+
+            self.paused.write(true);
+            self.emit(Paused {by: caller});
+        }
+
+        //Função de despausar
+        fn unpause(ref self: ContractState) {
+            let caller = get_caller_address();
+            let owner = self.ownable.owner();
+            assert(caller == owner, 'Only owner can unpause');
+
+            self.paused.wirte(false);
+            self.emit(Unpaused {by: caller});
         }
     }
 }
